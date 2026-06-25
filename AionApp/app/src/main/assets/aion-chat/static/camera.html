@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>摄像头监控 - Aion</title>
+<link rel="stylesheet" href="/static/common.css">
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#ff8359">
+<style>
+.cam-preview-container { width:100%; background:#000; border-radius:8px; overflow:hidden; position:relative; min-height:200px; display:flex; align-items:center; justify-content:center; touch-action:none; user-select:none; cursor:grab; }
+.cam-preview-container:active { cursor:grabbing; }
+.cam-preview-container img { width:100%; display:block; pointer-events:none; }
+.cam-preview-container .cam-no-signal { color:var(--text3); font-size:14px; }
+.cam-zoom-overlay { position:absolute; bottom:8px; right:8px; display:flex; gap:4px; align-items:center; z-index:5; }
+.cam-zoom-badge { background:rgba(0,0,0,0.6); color:#fff; font-size:11px; padding:2px 8px; border-radius:10px; min-width:36px; text-align:center; pointer-events:none; }
+.cam-zoom-btn { width:30px; height:30px; border-radius:50%; border:1px solid rgba(255,255,255,0.25); background:rgba(0,0,0,0.5); color:#fff; font-size:16px; display:flex; align-items:center; justify-content:center; cursor:pointer; line-height:1; }
+.cam-zoom-btn:hover { background:rgba(255,255,255,0.15); }
+.cam-controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+.cam-btn { padding:6px 14px; border:1px solid var(--border); border-radius:8px; background:var(--surface2); color:var(--text); font-size:13px; cursor:pointer; display:flex; align-items:center; gap:4px; }
+.cam-btn:hover { border-color:var(--text2); }
+.cam-btn.danger { background:var(--danger); border-color:var(--danger); color:#fff; }
+.cam-toggle-row { display:flex; align-items:center; justify-content:space-between; margin:6px 0; }
+.cam-toggle-label { font-size:13px; color:var(--text); }
+.cam-config-row { display:flex; align-items:center; gap:8px; margin:6px 0; }
+.cam-config-row label { font-size:12px; color:var(--text2); white-space:nowrap; min-width:50px; }
+.cam-config-row select, .cam-config-row input { background:var(--surface2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 6px; font-size:12px; outline:none; }
+.cam-config-row input { width:60px; text-align:center; }
+.cam-config-row input[type="time"] { width:auto; min-width:90px; }
+.cam-status { font-size:11px; color:var(--text3); margin-top:8px; text-align:center; }
+.cam-source-tabs { display:flex; gap:0; margin-bottom:8px; border-radius:8px; overflow:hidden; border:1px solid var(--border); }
+.cam-source-tab { flex:1; padding:7px 0; text-align:center; font-size:13px; cursor:pointer; background:var(--surface2); color:var(--text2); border:none; transition:all .2s; }
+.cam-source-tab.active { background:var(--accent,#ff8359); color:#fff; font-weight:600; }
+.cam-source-tab:not(.active):hover { background:var(--surface3,#eee); }
+.esp32-status-dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-left:4px; vertical-align:middle; }
+.esp32-status-dot.online { background:#4caf50; }
+.esp32-status-dot.offline { background:#f44336; }
+</style>
+</head>
+<body>
+<div class="sub-page">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='/'">⬅</button>
+    <h2>📷 摄像头监控</h2>
+  </div>
+  <div class="page-content">
+    <div class="cam-preview-container" id="camPreviewContainer">
+      <span class="cam-no-signal" id="camNoSignal">未开启摄像头</span>
+      <img id="camPreviewImg" style="display:none">
+      <div class="cam-zoom-overlay" id="camZoomOverlay" style="display:none">
+        <button class="cam-zoom-btn" onclick="camZoomReset()" title="重置">↺</button>
+        <button class="cam-zoom-btn" onclick="camZoomStep(-0.5)" title="缩小">−</button>
+        <span class="cam-zoom-badge" id="camZoomBadge">1.0×</span>
+        <button class="cam-zoom-btn" onclick="camZoomStep(0.5)" title="放大">+</button>
+      </div>
+    </div>
+    <div class="cam-controls">
+      <div class="cam-source-tabs">
+        <button class="cam-source-tab active" id="srcTabLocal" onclick="switchSourceTab('local')">💻 本地摄像头</button>
+        <button class="cam-source-tab" id="srcTabEsp32" onclick="switchSourceTab('esp32')">📡 ESP32-CAM<span class="esp32-status-dot offline" id="esp32Dot"></span></button>
+      </div>
+      <div id="localCamRow" class="cam-config-row" style="margin:0">
+        <label>摄像头</label>
+        <select id="camSelect2" onchange="camChangeCamera2()"></select>
+        <button onclick="camRefreshList2()" style="background:none;border:none;cursor:pointer;font-size:14px" title="刷新">🔄</button>
+      </div>
+      <div id="esp32CamRow" class="cam-config-row" style="margin:0;display:none">
+        <label>地址</label>
+        <input type="text" id="esp32UrlInput" placeholder="http://espcam.local" style="flex:1;min-width:140px">
+        <button class="cam-btn" onclick="esp32TestPing()" style="padding:4px 8px;font-size:12px">测试</button>
+      </div>
+      <div id="esp32BridgeStatus" style="display:none;font-size:11px;color:var(--text3);margin:2px 0">
+        🔗 App 桥接模式（通过手机中转）
+      </div>
+      <button class="cam-btn" id="camOpenBtn" onclick="camToggleOpen()">📷 开启摄像头</button>
+      <button class="cam-btn" onclick="camManualScreenshot()">📸 截图</button>
+    </div>
+    <div style="margin-top:10px">
+      <div class="cam-toggle-row">
+        <span class="cam-toggle-label">定时截图 + AI分析</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="camMonitorToggle2" onchange="camToggleMonitor2()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="cam-config-row">
+        <label>间隔</label>
+        <input type="number" id="camIntervalMin2" value="10" min="1" step="1" style="width:50px">
+        <span style="font-size:12px;color:var(--text2)">~</span>
+        <input type="number" id="camIntervalMax2" value="20" min="1" step="1" style="width:50px">
+        <span style="font-size:12px;color:var(--text2)">分钟</span>
+        <label style="margin-left:12px">保留</label>
+        <input type="number" id="camMaxKeep2" value="200" min="0" step="10">
+        <span style="font-size:12px;color:var(--text2)">张</span>
+        <button class="cam-btn" onclick="camApplyConfig()" style="margin-left:8px">应用</button>
+      </div>
+      <div class="cam-toggle-row">
+        <span class="cam-toggle-label">静默时段</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="quietHoursToggle2" onchange="camApplyConfig()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="cam-config-row" id="quietHoursRange2" style="display:none">
+        <label>时段</label>
+        <input type="time" id="quietHoursStart2" value="00:00" onchange="camApplyConfig()">
+        <span style="font-size:12px;color:var(--text2)">至</span>
+        <input type="time" id="quietHoursEnd2" value="09:00" onchange="camApplyConfig()">
+      </div>
+      <div class="cam-status" id="camStatus2">未连接</div>
+    </div>
+  </div>
+</div>
+<script src="/static/theme.js?v=theme-20260606"></script>
+<script src="/static/common.js"></script>
+<script>
+connectCommonWS();
+
+let camPreviewTimer = null;
+let camCrop = { zoom: 1.0, cx: 0.5, cy: 0.5 };
+let _camCropTimer = null;
+let _camBusy = false;
+let countdownTimer = null;
+let _activeSource = "local";
+
+(async function init() {
+  await syncCamModalState();
+  camLoadCrop();
+  startCamPreview();
+  initCamGestures();
+})();
+
+async function syncCamModalState() {
+  try {
+    const status = await api("GET", "/api/cam/status");
+    _activeSource = status.active_source || "local";
+    updateSourceTabs(_activeSource);
+    $("esp32UrlInput").value = status.esp32_cam_url || "";
+    $("camMonitorToggle2").checked = status.monitoring;
+    $("camIntervalMin2").value = status.auto_interval_min;
+    $("camIntervalMax2").value = status.auto_interval_max;
+    $("camMaxKeep2").value = status.max_screenshots;
+    $("quietHoursToggle2").checked = status.quiet_hours_enabled || false;
+    $("quietHoursStart2").value = status.quiet_hours_start || "00:00";
+    $("quietHoursEnd2").value = status.quiet_hours_end || "09:00";
+    $("quietHoursRange2").style.display = status.quiet_hours_enabled ? "" : "none";
+    $("camOpenBtn").textContent = status.camera_open ? "⏹ 关闭摄像头" : "📷 开启摄像头";
+    $("camOpenBtn").className = status.camera_open ? "cam-btn danger" : "cam-btn";
+    const bridgeEl = $("esp32BridgeStatus");
+    if (bridgeEl) bridgeEl.style.display = (status.esp32_bridge_active && _activeSource === "esp32") ? "" : "none";
+    updateCamStatusText(status);
+    if (_activeSource === "local") await camRefreshList2();
+    esp32CheckOnline();
+    startCountdown();
+  } catch(e) {
+    $("camStatus2").textContent = "获取状态失败";
+  }
+}
+
+function updateCamStatusText(status) {
+  if (status.monitoring) {
+    const s = status.next_capture_in || 0;
+    const min = Math.floor(s / 60), sec = s % 60;
+    const countdown = min > 0 ? `${min}分${String(sec).padStart(2,'0')}秒` : `${sec}秒`;
+    $("camStatus2").textContent = `✅ 监控中 | 下次截图: ${countdown}`;
+  } else if (status.camera_open) {
+    $("camStatus2").textContent = "摄像头已开启（监控未启动）";
+  } else {
+    $("camStatus2").textContent = "未连接";
+  }
+}
+
+function startCountdown() { stopCountdown(); updateCountdown(); countdownTimer = setInterval(updateCountdown, 1000); }
+function stopCountdown() { if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; } }
+async function updateCountdown() { try { const s = await api("GET","/api/cam/status"); updateCamStatusText(s); } catch(e){} }
+
+function startCamPreview() { stopCamPreview(); refreshFrame(); camPreviewTimer = setInterval(refreshFrame, 1000); }
+function stopCamPreview() { if (camPreviewTimer) { clearInterval(camPreviewTimer); camPreviewTimer = null; } }
+
+function refreshFrame() {
+  const img = $("camPreviewImg"), noSig = $("camNoSignal"), overlay = $("camZoomOverlay");
+  const newImg = new Image();
+  newImg.onload = () => { img.src = newImg.src; img.style.display = "block"; noSig.style.display = "none"; if(overlay) overlay.style.display = "flex"; };
+  newImg.onerror = () => { img.style.display = "none"; noSig.style.display = ""; noSig.textContent = "未开启摄像头"; if(overlay) overlay.style.display = "none"; };
+  newImg.src = "/api/cam/frame?t=" + Date.now();
+}
+
+// 缩放/平移
+function camUpdateBadge() { const b = $("camZoomBadge"); if (b) b.textContent = camCrop.zoom.toFixed(1) + "×"; }
+function camSendCrop() { clearTimeout(_camCropTimer); _camCropTimer = setTimeout(async () => { try { await api("PUT", "/api/cam/crop", camCrop); } catch(e){} }, 80); }
+function camZoomStep(delta) { camCrop.zoom = Math.round(Math.max(1, Math.min(10, camCrop.zoom + delta)) * 10) / 10; camClampCenter(); camUpdateBadge(); camSendCrop(); }
+function camZoomReset() { camCrop.zoom = 1.0; camCrop.cx = 0.5; camCrop.cy = 0.5; camUpdateBadge(); camSendCrop(); }
+function camClampCenter() { if (camCrop.zoom <= 1) { camCrop.cx = 0.5; camCrop.cy = 0.5; return; } const half = 0.5 / camCrop.zoom; camCrop.cx = Math.max(half, Math.min(1 - half, camCrop.cx)); camCrop.cy = Math.max(half, Math.min(1 - half, camCrop.cy)); }
+async function camLoadCrop() { try { const c = await api("GET", "/api/cam/crop"); camCrop.zoom = c.zoom || 1; camCrop.cx = c.cx ?? 0.5; camCrop.cy = c.cy ?? 0.5; camUpdateBadge(); } catch(e){} }
+
+function initCamGestures() {
+  const el = $("camPreviewContainer"); if (!el) return;
+  el.addEventListener("wheel", (e) => { e.preventDefault(); camZoomStep(e.deltaY < 0 ? 0.3 : -0.3); }, { passive: false });
+  let dragging = false, dragStartX, dragStartY, startCx, startCy;
+  el.addEventListener("mousedown", (e) => { if (camCrop.zoom <= 1) return; dragging = true; dragStartX = e.clientX; dragStartY = e.clientY; startCx = camCrop.cx; startCy = camCrop.cy; e.preventDefault(); });
+  document.addEventListener("mousemove", (e) => { if (!dragging) return; const rect = el.getBoundingClientRect(); camCrop.cx = startCx - (e.clientX - dragStartX) / rect.width; camCrop.cy = startCy - (e.clientY - dragStartY) / rect.height; camClampCenter(); camSendCrop(); });
+  document.addEventListener("mouseup", () => { dragging = false; });
+  let lastTouchDist = 0, touchStartCx, touchStartCy, singleTouchStart = null;
+  el.addEventListener("touchstart", (e) => { if (e.touches.length === 2) { e.preventDefault(); lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); singleTouchStart = null; } else if (e.touches.length === 1 && camCrop.zoom > 1) { e.preventDefault(); singleTouchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY }; touchStartCx = camCrop.cx; touchStartCy = camCrop.cy; } }, { passive: false });
+  el.addEventListener("touchmove", (e) => { if (e.touches.length === 2) { e.preventDefault(); const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); if (lastTouchDist > 0) { camCrop.zoom = Math.round(Math.max(1, Math.min(10, camCrop.zoom * dist / lastTouchDist)) * 10) / 10; camClampCenter(); camUpdateBadge(); camSendCrop(); } lastTouchDist = dist; } else if (e.touches.length === 1 && singleTouchStart && camCrop.zoom > 1) { e.preventDefault(); const rect = el.getBoundingClientRect(); camCrop.cx = touchStartCx - (e.touches[0].clientX - singleTouchStart.x) / rect.width; camCrop.cy = touchStartCy - (e.touches[0].clientY - singleTouchStart.y) / rect.height; camClampCenter(); camSendCrop(); } }, { passive: false });
+  el.addEventListener("touchend", () => { lastTouchDist = 0; singleTouchStart = null; });
+}
+
+async function camRefreshList2() { try { const data = await api("GET","/api/cam/cameras"); $("camSelect2").innerHTML = data.cameras.map(i => `<option value="${i}" ${i===data.current?'selected':''}>摄像头 ${i}</option>`).join(""); } catch(e){} }
+async function camChangeCamera2() { if (_camBusy) return; const idx = parseInt($("camSelect2").value); if (isNaN(idx)) return; _camBusy = true; $("camOpenBtn").disabled = true; $("camOpenBtn").textContent = "⏳ 切换中..."; try { await api("POST", `/api/cam/open?camera_index=${idx}`); syncCamModalState(); } finally { $("camOpenBtn").disabled = false; _camBusy = false; } }
+
+async function camToggleOpen() {
+  if (_camBusy) return; _camBusy = true;
+  const btn = $("camOpenBtn"); btn.disabled = true; btn.textContent = "⏳ 请稍候...";
+  try {
+    const status = await api("GET", "/api/cam/status");
+    if (status.camera_open) {
+      await api("POST", "/api/cam/close");
+    } else {
+      if (_activeSource === "esp32") {
+        const url = ($("esp32UrlInput").value || "").trim();
+        await api("POST", "/api/cam/source", { source: "esp32", esp32_url: url || undefined });
+      } else {
+        const idx = parseInt($("camSelect2").value);
+        await api("POST", `/api/cam/open?camera_index=${isNaN(idx) ? (status.camera_index||0) : idx}`);
+      }
+    }
+    syncCamModalState();
+  } finally { btn.disabled = false; _camBusy = false; }
+}
+
+async function camManualScreenshot() {
+  const res = await api("POST", "/api/cam/screenshot");
+  if (res.error) { alert(res.error); return; }
+  showToast("📸 截图已保存");
+  setTimeout(() => syncCamModalState(), 1500);
+}
+
+async function camToggleMonitor2() {
+  const on = $("camMonitorToggle2").checked;
+  if (on) { await camApplyConfig(); await api("POST", "/api/cam/monitor/start"); }
+  else { await api("POST", "/api/cam/monitor/stop"); stopCountdown(); }
+  syncCamModalState();
+}
+
+async function camApplyConfig() {
+  const intervalMin = parseInt($("camIntervalMin2").value) || 10;
+  const intervalMax = Math.max(intervalMin, parseInt($("camIntervalMax2").value) || 20);
+  $("camIntervalMax2").value = intervalMax;
+  const maxKeep = parseInt($("camMaxKeep2").value) || 0;
+  const quietEnabled = $("quietHoursToggle2").checked;
+  $("quietHoursRange2").style.display = quietEnabled ? "" : "none";
+  await api("PUT", "/api/cam/config", {
+    auto_interval_min: intervalMin, auto_interval_max: intervalMax, max_screenshots: maxKeep,
+    quiet_hours_enabled: quietEnabled, quiet_hours_start: $("quietHoursStart2").value || "00:00", quiet_hours_end: $("quietHoursEnd2").value || "09:00"
+  });
+}
+
+// ── ESP32-CAM 画面源切换 ───────────────────────────
+function updateSourceTabs(source) {
+  _activeSource = source;
+  $("srcTabLocal").className = "cam-source-tab" + (source === "local" ? " active" : "");
+  $("srcTabEsp32").className = "cam-source-tab" + (source === "esp32" ? " active" : "");
+  $("localCamRow").style.display = source === "local" ? "" : "none";
+  $("esp32CamRow").style.display = source === "esp32" ? "" : "none";
+}
+
+async function switchSourceTab(source) {
+  if (_camBusy || source === _activeSource) { updateSourceTabs(source); return; }
+  _camBusy = true;
+  const btn = $("camOpenBtn"); btn.disabled = true; btn.textContent = "⏳ 切换中...";
+  updateSourceTabs(source);
+  try {
+    const payload = { source };
+    if (source === "esp32") {
+      const url = ($("esp32UrlInput").value || "").trim();
+      if (url) payload.esp32_url = url;
+    }
+    const res = await api("POST", "/api/cam/source", payload);
+    if (!res.ok) showToast(res.message || "切换失败");
+    await syncCamModalState();
+  } catch(e) {
+    showToast("切换失败");
+    updateSourceTabs(_activeSource);
+  } finally {
+    btn.disabled = false; _camBusy = false;
+  }
+}
+
+async function esp32CheckOnline() {
+  const dot = $("esp32Dot"); if (!dot) return;
+  try {
+    const res = await api("GET", "/api/cam/esp32/ping");
+    dot.className = "esp32-status-dot " + (res.online ? "online" : "offline");
+  } catch(e) {
+    dot.className = "esp32-status-dot offline";
+  }
+}
+
+async function esp32TestPing() {
+  const url = ($("esp32UrlInput").value || "").trim();
+  if (!url) { showToast("请输入 ESP32-CAM 地址"); return; }
+  // 先保存 URL 到配置
+  await api("PUT", "/api/cam/config", { esp32_cam_url: url });
+  showToast("⏳ 测试连接中...");
+  const res = await api("GET", "/api/cam/esp32/ping");
+  if (res.online) {
+    showToast("✅ ESP32-CAM 在线");
+    $("esp32Dot").className = "esp32-status-dot online";
+  } else {
+    showToast("❌ 连接失败: " + (res.message || "无法访问"));
+    $("esp32Dot").className = "esp32-status-dot offline";
+  }
+}
+</script>
+</body>
+</html>

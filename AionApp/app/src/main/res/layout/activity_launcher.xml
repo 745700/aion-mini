@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="32dp"
+    android:background="#1a1a2e">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Aion Mini"
+        android:textColor="#e0e0e0"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:id="@+id/tv_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="服务器地址：http://127.0.0.1:8080"
+        android:textColor="#a0a0a0"
+        android:textSize="14sp"
+        android:layout_marginBottom="40dp"/>
+
+    <Button
+        android:id="@+id/btn_launch"
+        android:layout_width="240dp"
+        android:layout_height="56dp"
+        android:text="启动 AI 对话"
+        android:textSize="18sp"
+        android:backgroundTint="#4a90d9"
+        android:layout_marginBottom="16dp"/>
+
+    <Button
+        android:id="@+id/btn_settings"
+        android:layout_width="240dp"
+        android:layout_height="48dp"
+        android:text="设置服务器地址"
+        android:textSize="16sp"
+        android:backgroundTint="#333355"/>
+
+</LinearLayout>

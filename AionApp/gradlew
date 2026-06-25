@@ -1,0 +1,33 @@
+#!/bin/sh
+#
+# Gradle wrapper script for POSIX systems
+#
+
+# Determine the directory of this script
+APP_HOME=$(cd "$(dirname "$0")" && pwd)
+
+# Use the system gradle if GRADLE_HOME is set, otherwise use wrapper
+if [ -n "$GRADLE_HOME" ] && [ -x "$GRADLE_HOME/bin/gradle" ]; then
+    exec "$GRADLE_HOME/bin/gradle" "$@"
+fi
+
+# Use the system gradle
+if command -v gradle >/dev/null 2>&1; then
+    exec gradle "$@"
+fi
+
+# Download gradle if not available
+GRADLE_USER_HOME="${GRADLE_USER_HOME:-$HOME/.gradle}"
+WRAPPER_DIR="$GRADLE_USER_HOME/wrapper/dists/gradle-8.5-bin"
+GRADLE_ZIP="$WRAPPER_DIR/gradle-8.5.zip"
+
+if [ ! -d "$WRAPPER_DIR/gradle-8.5" ]; then
+    mkdir -p "$WRAPPER_DIR"
+    if [ ! -f "$GRADLE_ZIP" ]; then
+        echo "下载 Gradle 8.5..."
+        curl -sL "https://services.gradle.org/distributions/gradle-8.5-bin.zip" -o "$GRADLE_ZIP"
+    fi
+    unzip -q "$GRADLE_ZIP" -d "$WRAPPER_DIR"
+fi
+
+exec "$WRAPPER_DIR/gradle-8.5/bin/gradle" "$@"
